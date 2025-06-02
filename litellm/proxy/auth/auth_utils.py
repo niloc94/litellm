@@ -529,11 +529,47 @@ def get_model_from_request(
     # If model not in request_data, try to extract from route
     if model is None:
         # Parse model from route that follows the pattern /openai/deployments/{model}/*
-        match = re.match(r"/openai/deployments/([^/]+)", route)
-        if match:
-            model = match.group(1)
+        if route.startswith("/openai/deployments/"):
+            match = re.match(r"/openai/deployments/([^/]+)", route)
+            if match:
+                model = match.group(1)
+        # Parse model from bedrock runtime route 
+        elif route.startswith("/bedrock/model/"):
+            model = _get_model_from_bedrock_runtime_requests(route)
 
     return model
+
+
+def _get_model_from_bedrock_runtime_requests(route: str) -> Optional[str]:
+    """
+    Extract bedrock (runtime model) from the /bedrock routes.
+    - Route format: /bedrock/model/{modelId}/{command}
+    
+    where command can be one of:
+    ["converse", "converse-stream", "invoke", "invoke-with-bidirectional-stream", "invoke-with-response-stream"]
+
+    See https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+
+    This is useful for bedrock passthrough requests 
+    where the model is not in the request body but in the request endpoint, 
+    but we need the model id for e.g model control access purposes.
+    """
+    # capture everything until the last /command
+    bedrock_commands = ["converse", "converse-stream", "invoke", 
+                        "invoke-with-bidirectional-stream", "invoke-with-response-stream"]
+    
+    # Use (.+) to capture everything, then check if it ends with a valid command
+    bedrock_pattern = rf"/bedrock/model/(.+)/({'|'.join(bedrock_commands)})$"
+    bedrock_match = re.match(bedrock_pattern, route)
+    
+    if bedrock_match:
+        encoded_model = bedrock_match.group(1)
+        model = urllib.parse.unquote(encoded_model)
+        verbose_proxy_logger.debug(f"Extracted Bedrock model from route: {model}")
+        return model
+    
+    verbose_proxy_logger.debug(f"No Bedrock model found in route: {route}")
+    return None
 
 
 def abbreviate_api_key(api_key: str) -> str:

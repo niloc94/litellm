@@ -951,6 +951,8 @@ def test_can_rbac_role_call_model_no_role_permissions():
         ("/v1/completions", {}, None),
         ("/openai/deployments/gpt-4", {}, "gpt-4"),
         ("/openai/deployments/gpt-4", {"model": "gpt-4o"}, "gpt-4o"),
+        ({}, "/bedrock/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse", "anthropic.claude-3-5-sonnet-20240620-v1:0"),
+        ({"model": "gpt-4"}, "/bedrock/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse", "anthropic.claude-3-5-sonnet-20240620-v1:0"),  # Route wins. Request body ignored
     ],
 )
 def test_get_model_from_request(route, request_data, expected_model):

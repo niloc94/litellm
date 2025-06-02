@@ -78,21 +78,48 @@ def test_get_end_user_id_from_request_body_always_returns_str():
     assert end_user_id == "123"
     assert isinstance(end_user_id, str)
 
+
 @pytest.mark.parametrize(
-    "request_data, expected_model",
-    [
-        ({"target_model_names": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
-        ({"target_model_names": "gpt-3.5-turbo"}, ["gpt-3.5-turbo"]),
-        ({"model": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
-        ({"model": "gpt-3.5-turbo"}, "gpt-3.5-turbo"),
-        ({"model": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
+    "request_data, route, expected_model",
+    [        
+        # default cases, take from request header
+        ({"target_model_names": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, "/v1/files", ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
+        ({"target_model_names": "gpt-3.5-turbo"}, {}, ["gpt-3.5-turbo"]),
+        ({"model": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, {}, ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
+        ({"model": "gpt-3.5-turbo"}, {}, "gpt-3.5-turbo"),
+        ({"model": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}, {}, ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]),
+
+        # Azure OpenAI passthrough - take from route
+        ({}, "/openai/deployments/gpt-4-deployment/chat/completions", "gpt-4-deployment"),
+    
+        # Bedrock passthrough
+        ({}, "/bedrock/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse", "anthropic.claude-3-5-sonnet-20240620-v1:0"),
+        ({"model": "gpt-4"}, "/bedrock/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse", "anthropic.claude-3-5-sonnet-20240620-v1:0"),  # Request body ignored
     ],
 )
-def test_get_model_from_request(request_data, expected_model):
+def test_get_model_from_request(request_data, route, expected_model):
     from litellm.proxy.auth.auth_utils import get_model_from_request
 
-    request_data = {"target_model_names": "gpt-3.5-turbo, gpt-4o-mini-general-deployment"}
-    route = "/openai/deployments/gpt-3.5-turbo"
-    model = get_model_from_request(request_data, "/v1/files")
-    assert model == ["gpt-3.5-turbo", "gpt-4o-mini-general-deployment"]
+    model = get_model_from_request(request_data, route)
+    assert model == expected_model
 
+@pytest.mark.parametrize(
+    "input_route, expected_model",
+    [
+        # Valid Bedrock routes
+        ("/bedrock/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse", "anthropic.claude-3-5-sonnet-20240620-v1:0"),
+        ("/bedrock/model/cohere.command-text-v14/converse-stream", "cohere.command-text-v14"),
+        ("/bedrock/model/arn:aws:bedrock:us-west-2:123456789012:custom-model/my-model-abc/invoke", "arn:aws:bedrock:us-west-2:123456789012:custom-model/my-model-abc"),
+
+        # Invalid cases
+        ("/bedrock/model/anthropic.claude/invalid-command", None),
+        ("/bedrock/model/", None),
+        ("/bedrock/model/some-model", None),  # Missing command
+        ("/chat/completions", None),  # Non-bedrock route
+    ],
+)
+def test_get_model_from_bedrock_runtime_requests(input_route, expected_model):
+    from litellm.proxy.auth.auth_utils import _get_model_from_bedrock_runtime_requests
+
+    model = _get_model_from_bedrock_runtime_requests(input_route)
+    assert model == expected_model
